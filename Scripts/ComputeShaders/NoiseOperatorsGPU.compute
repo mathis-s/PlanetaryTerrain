@@ -1,0 +1,159 @@
+﻿//#define 2_PI 6.28318530717958647692
+#define PI 3.14159265358979323846
+//#define PI_2 1.57079632679489661923
+
+//#define PI_INV 0.318309886183790671538
+//#define 2_PI_INV 0.636619772367581343076
+
+float Select (float cv, float nmax, float n) 
+{
+	return max(min((n * (cv - nmax) + 0.5), 1), 0);
+}
+
+
+static float CubicInterpolation(float n0, float n1, float n2, float n3, float a)
+{
+    return n1 + 0.5 * a * (n2 - n0 + a * (2 * n0 - 5 * n1 + 4 * n2 - n3 + a * (3 * (n1 - n2) + n3 - n0)));
+}
+
+
+float Curve (float time, float times[25], float values[25]) 
+{
+	
+	time = (time + 1) / 2;
+
+	int index;
+    for (index = 0; index < 25; index++)
+    {
+        if (time < times[index])
+            break;
+    }
+
+    int index0 = clamp(index - 2, 0, 24);
+    int index1 = clamp(index - 1, 0, 24);
+    int index2 = clamp(index, 0, 24);
+    int index3 = clamp(index + 1, 0, 24);
+		
+	float alpha = (time - times[index1]) / (times[index2] - times[index1]);
+
+	return (CubicInterpolation(values[index0], values[index1], values[index2], values[index3], alpha) * 2) - 1;
+}
+
+float acosf_taylor (float x) //acos() seems imprecise around 0; using this around 0 instead; returns (pi - acos(x)) * (1/pi)
+{
+    float x3 = x * x * x;
+    float x5 = x3 * x * x;
+
+    return 0.5 + (1 / PI) * x  +  (1 / (6 * PI)) * x3  +  (3 / (40 * PI)) * x5;
+}
+
+inline float2 heightmapPos (float3 position) 
+{
+    float2 uv = float2( 
+        (atan2(position.z, position.x) + 3.14159265358979323846) * 0.159154943091895335769,
+        ( (abs(position.y) < 0.00005) ? acosf_taylor(position.y) : ((3.14159265358979323846 - acos(position.y)) * 0.318309886183790671538) )
+    );
+    //uv.y = abs(position.y) < 0.00005 ? 0.5 : uv.y; 
+    return uv;
+}
+
+
+float SampleBicubic(Texture2D<float> heightmap, sampler texSampler, float3 pos)
+{
+    float2 uv = heightmapPos(pos);
+
+    float2 textureDimensions;
+    heightmap.GetDimensions(textureDimensions.x, textureDimensions.y);
+    
+    float2 invTextureDimensions = 1.0 / textureDimensions;
+
+    uv *= textureDimensions + float2(1, 1);
+
+    float x2 = floor(uv.x) + 0.5;
+    float x1 = x2 - 1;
+    float x3 = x2 + 1;
+    float x4 = x3 + 1;
+
+    x2 *= invTextureDimensions.x;
+    x1 *= invTextureDimensions.x;
+    x3 *= invTextureDimensions.x;
+    x4 *= invTextureDimensions.x;
+
+    float y2 = floor(uv.y) + 0.5;
+    float y1 = y2 - 1;
+    float y3 = y2 + 1;
+    float y4 = y3 + 1;
+
+    y2 *= invTextureDimensions.y;
+    y1 *= invTextureDimensions.y;
+    y3 *= invTextureDimensions.y;
+    y4 *= invTextureDimensions.y;
+
+    float4x4 pixels = 
+    { 
+        heightmap.SampleLevel(texSampler, float2(x1, y1), 0), heightmap.SampleLevel(texSampler, float2(x2, y1), 0), heightmap.SampleLevel(texSampler, float2(x3, y1), 0), heightmap.SampleLevel(texSampler, float2(x4, y1), 0),
+        heightmap.SampleLevel(texSampler, float2(x1, y2), 0), heightmap.SampleLevel(texSampler, float2(x2, y2), 0), heightmap.SampleLevel(texSampler, float2(x3, y2), 0), heightmap.SampleLevel(texSampler, float2(x4, y2), 0),
+        heightmap.SampleLevel(texSampler, float2(x1, y3), 0), heightmap.SampleLevel(texSampler, float2(x2, y3), 0), heightmap.SampleLevel(texSampler, float2(x3, y3), 0), heightmap.SampleLevel(texSampler, float2(x4, y3), 0),
+        heightmap.SampleLevel(texSampler, float2(x1, y4), 0), heightmap.SampleLevel(texSampler, float2(x2, y4), 0), heightmap.SampleLevel(texSampler, float2(x3, y4), 0), heightmap.SampleLevel(texSampler, float2(x4, y4), 0) 
+    };
+
+
+    float xpos = frac(uv.x);
+    float ypos = frac(uv.y);
+
+    float val1 = CubicInterpolation(pixels._m00, pixels._m01, pixels._m02, pixels._m03, xpos);
+    float val2 = CubicInterpolation(pixels._m10, pixels._m11, pixels._m12, pixels._m13, xpos);
+    float val3 = CubicInterpolation(pixels._m20, pixels._m21, pixels._m22, pixels._m23, xpos);
+    float val4 = CubicInterpolation(pixels._m30, pixels._m31, pixels._m32, pixels._m33, xpos);
+
+    return clamp(CubicInterpolation(val1, val2, val3, val4, ypos), 0, 1);
+}
+
+
+float SampleBicubicFast(Texture2D<float> heightmap, sampler texSampler, float3 pos)
+{
+    float2 uv = heightmapPos(pos);
+
+    float2 textureDimensions;
+    heightmap.GetDimensions(textureDimensions.x, textureDimensions.y);
+    
+    float2 invTextureDimensions = 1.0 / textureDimensions;
+
+    uv *= textureDimensions;
+    
+    float2 texelCenter = floor(uv - 0.5) + 0.5;
+    float2 fracOffset = uv - texelCenter;
+    float2 fracOffset_x2 = fracOffset * fracOffset;
+    float2 fracOffset_x3 = fracOffset * fracOffset_x2;
+
+    float2 weight0 = fracOffset_x2 - 0.5 * (fracOffset_x3 + fracOffset);
+    float2 weight1 = 1.5 * fracOffset_x3 - 2.5 * fracOffset_x2 + 1.0;
+    float2 weight3 = 0.5 * (fracOffset_x3 - fracOffset_x2);
+    float2 weight2 = 1.0 - weight0 - weight1 - weight3;
+
+    float2 scalingFactor0 = weight0 + weight1;
+    float2 scalingFactor1 = weight2 + weight3;
+
+    float2 f0 = weight1 / scalingFactor0;
+    float2 f1 = weight3 / scalingFactor1;
+
+    float2 texCoord0 = texelCenter - 1.0 + f0;
+    float2 texCoord1 = texelCenter + 1.0 + f1;
+
+    texCoord0 *= invTextureDimensions;
+    texCoord1 *= invTextureDimensions;
+
+
+    return clamp(heightmap.SampleLevel(texSampler, float2(texCoord0.x, texCoord0.y), 0) * scalingFactor0.x * scalingFactor0.y +
+            heightmap.SampleLevel(texSampler, float2(texCoord1.x, texCoord0.y), 0) * scalingFactor1.x * scalingFactor0.y +
+            heightmap.SampleLevel(texSampler, float2(texCoord0.x, texCoord1.y), 0) * scalingFactor0.x * scalingFactor1.y +
+            heightmap.SampleLevel(texSampler, float2(texCoord1.x, texCoord1.y), 0) * scalingFactor1.x * scalingFactor1.y, 0, 1);
+}           
+
+
+float SampleLinear(Texture2D<float> heightmap, sampler texSampler, float3 pos) 
+{
+    float2 uv = heightmapPos(pos);
+
+    return heightmap.SampleLevel(texSampler, uv, 0);
+}   

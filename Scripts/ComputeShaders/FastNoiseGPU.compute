@@ -1,0 +1,1020 @@
+﻿//Ported from FastNoise
+#define FN_CELLULAR_INDEX_MAX 3
+
+int m_noiseType;
+int m_seed = 42;
+float m_frequency = 0.005;
+static const int m_interp = 2; //Quintic
+int m_octaves = 10;
+float m_lacunarity = 2.0;
+
+static const float m_gain = 0.5;
+
+int m_fractalType = 0;
+float m_fractalBounding = 1.0;
+
+static const int m_cellularDistanceFunction = 0;
+static const int m_cellularReturnType = 0;
+
+static const int m_cellularDistanceIndex0 = 0;
+static const int m_cellularDistanceIndex1 = 1;
+
+static const float m_cellularJitter = 0.45;
+
+static const float m_gradientPertrubAmp = 1.0;
+
+void CalculateFractalBounding()
+{
+	float amp = m_gain;
+	float ampFractal = 1;
+	for (int i = 1; i < m_octaves; i++)
+	{
+    	ampFractal += amp;
+    	amp *= m_gain;
+	}
+	m_fractalBounding = 1 / ampFractal;
+}
+
+void SetParameters(int seed, float frequency, int octaves, float lacunarity, int fractalType) {
+	m_seed = seed;
+	m_frequency = frequency;
+	m_octaves = octaves;
+	m_lacunarity = lacunarity;
+	m_fractalType = fractalType;
+	CalculateFractalBounding();
+}
+
+
+static const int X_PRIME = 1619;
+static const int Y_PRIME = 31337;
+static const int Z_PRIME = 6971;
+static const int W_PRIME = 1013;
+
+
+
+static const float3 GRAD_3D[] = {
+	float3( 1, 1, 0), float3(-1, 1, 0), float3( 1,-1, 0), float3(-1,-1, 0),
+    float3( 1, 0, 1), float3(-1, 0, 1), float3( 1, 0,-1), float3(-1, 0,-1),
+    float3( 0, 1, 1), float3( 0,-1, 1), float3( 0, 1,-1), float3( 0,-1,-1),
+    float3( 1, 1, 0), float3( 0,-1, 1), float3(-1, 1, 0), float3( 0,-1,-1),
+};
+
+
+
+static const float3 CELL_3D[] =
+{
+    float3(-0.729273688, -0.661843969, 0.173558194), float3(0.79029208, -0.548088746, -0.273929101), float3(0.721757893, 0.622621246, -0.302338099), float3(0.56568313, -0.820829814, -0.079000025), float3(0.76004903, -0.555597949, -0.337099961), float3(0.371394561, 0.501126447, 0.781625462), float3(-0.127706246, -0.425443899, -0.895928904), float3(-0.288156092, -0.581583898, 0.760740583),
+    float3(0.584956111, -0.66282023, -0.467435213), float3(0.330717117, 0.039165373, 0.9429168), float3(0.871212177, -0.411337436, -0.267938153), float3(0.58098101, 0.702191584, 0.411567781), float3(0.50375687, 0.633005693, -0.587820385), float3(0.449371220, 0.60139019, 0.660602255), float3(-0.687840372, 0.0901889080, -0.720237171), float3(-0.595895652, -0.646935057, 0.47579764),
+    float3(-0.512705212, 0.194692197, -0.836198728), float3(-0.991150714, -0.0541027646, -0.121215315), float3(-0.214972104, 0.972088211, -0.0939760774), float3(-0.751865093, -0.542805760, 0.374246960), float3(0.523706889, 0.851637718, -0.0210781783), float3(0.633350477, 0.192616712, -0.749510489), float3(-0.0678824160, 0.399830578, 0.914071925), float3(-0.553862859, -0.472989669, -0.685212890),
+    float3(-0.726145536, -0.591199075, 0.350993322), float3(-0.922927473, -0.178280878, 0.341204933), float3(-0.696881500, 0.651127433, 0.300648032), float3(0.960804478, -0.209836323, -0.181172492), float3(0.0681714606, -0.974340512, 0.214506915), float3(-0.357728519, -0.669708726, -0.650784548), float3(-0.186862113, 0.764861705, -0.616497463), float3(-0.654169758, 0.396791483, 0.643908724),
+    float3(0.699334040, -0.616453850, 0.361823921), float3(-0.154666573, 0.629128392, 0.761758305), float3(-0.684161294, -0.258048218, -0.682154263), float3(0.538398095, 0.425865488, 0.727163032), float3(-0.502698782, -0.793983293, -0.341883699), float3(0.320297171, 0.283441534, 0.903919586), float3(0.868322710, -0.000376265640, -0.495999525), float3(0.79112003, -0.0851104574, 0.605710579),
+    float3(-0.0401101605, -0.439724874, 0.897236428), float3(0.914511987, 0.357934616, -0.188548760), float3(-0.961203906, -0.275648427, 0.0102466692), float3(0.651036172, -0.287779915, -0.702377834), float3(-0.204178635, 0.736523727, 0.64485958), float3(-0.771826371, 0.379062691, 0.510485581), float3(-0.306008274, -0.769298772, 0.560837172), float3(0.45400734, -0.502484306, 0.735789953),
+    float3(0.481679547, 0.602120829, -0.636738031), float3(0.696198036, -0.322219742, 0.64146919), float3(-0.653216049, -0.678114893, 0.336851575), float3(0.508930123, -0.615466230, -0.601823436), float3(-0.163591975, -0.913360462, -0.37284089), float3(0.5240801, -0.843766410, 0.115750586), float3(0.590258735, 0.498381780, -0.634988366), float3(0.586322787, 0.49476474, 0.641430772),
+    float3(0.677933508, 0.234134522, 0.696840859), float3(0.717705454, -0.685897934, 0.12017863), float3(-0.532881971, -0.520512501, 0.667160805), float3(-0.865487425, -0.070072708, -0.496005375), float3(-0.286181016, 0.795208923, 0.534549524), float3(-0.0484952963, 0.981083642, -0.187411558), float3(-0.635852166, 0.605834868, 0.478180023), float3(0.625479469, -0.286161973, 0.725869656),
+    float3(-0.258525986, 0.506194926, -0.822758172), float3(0.0213630678, 0.506401680, -0.862033037), float3(0.20011177, 0.859926348, 0.469555059), float3(0.474356137, 0.601498508, -0.642795301), float3(0.662299373, -0.520247457, -0.539167991), float3(0.0808497281, -0.653272045, 0.752794099), float3(-0.689368750, 0.059286034, 0.721980534), float3(-0.112188708, -0.967318506, 0.227395251),
+    float3(0.734411609, 0.597966865, -0.321053290), float3(0.578939346, -0.248884971, 0.776457020), float3(0.698818282, 0.355716980, -0.620579114), float3(-0.863684552, -0.274877124, -0.422482614), float3(-0.424702795, -0.464088096, 0.77733504), float3(0.525772248, -0.842701762, 0.115832993), float3(0.934383060, 0.31630247, -0.163954392), float3(-0.101683641, -0.805730307, -0.583488739),
+    float3(-0.652923896, 0.5060212, -0.563589273), float3(-0.246528616, -0.966820568, -0.0669449749), float3(-0.977689711, -0.209925052, -0.00736882534), float3(0.773689333, 0.573424471, 0.269423812), float3(-0.609508789, 0.499567899, 0.615573674), float3(0.579453548, 0.743454677, 0.333929226), float3(-0.822621115, 0.0814258185, 0.562729363), float3(-0.51038548, 0.470366765, 0.719903996),
+    float3(-0.576497184, -0.0723165627, -0.813892689), float3(0.725062887, 0.394997150, -0.564146311), float3(-0.152542400, 0.486084082, -0.860495834), float3(-0.555097620, -0.495782079, 0.66788229), float3(-0.188361432, 0.914586939, 0.35784172), float3(0.762555672, -0.541440824, -0.354048980), float3(-0.587023194, -0.322649801, -0.742496380), float3(0.305112419, 0.226254406, -0.925048839),
+    float3(0.637957605, 0.57724242, -0.509707050), float3(-0.596677579, 0.145485239, -0.789183065), float3(-0.65833057, 0.655548754, -0.369941465), float3(0.743489242, 0.235108458, 0.626057312), float3(0.556211409, 0.826436037, -0.087363284), float3(-0.302894001, -0.825152718, 0.476841918), float3(0.112934381, -0.98588843, -0.123571078), float3(0.593765289, -0.589681380, 0.547465661),
+    float3(0.675796409, -0.583575861, -0.450264841), float3(0.724230260, -0.115271976, 0.679855058), float3(-0.951191416, 0.075362397, -0.299258079), float3(0.253947096, -0.188633935, 0.948645408), float3(0.57143362, -0.167945085, -0.803279568), float3(-0.0677823497, 0.397826925, 0.914953162), float3(0.607497264, 0.73306002, -0.305892259), float3(-0.543547839, 0.167582248, 0.822479140),
+    float3(-0.587667808, -0.338004506, -0.735118698), float3(-0.796756240, 0.0409782270, -0.602909842), float3(-0.199635091, 0.870629474, 0.449611107), float3(-0.0278766033, -0.910623268, -0.412296202), float3(-0.779762599, -0.625763469, 0.0197577558), float3(-0.521123284, 0.740164434, -0.424955447), float3(0.857542485, 0.405327287, -0.316750178), float3(0.104522332, 0.839019577, -0.533967443),
+    float3(0.350182283, 0.924252409, -0.152085015), float3(0.198784985, 0.0764761326, 0.977054722), float3(0.784599636, 0.606625681, -0.128096423), float3(0.0900673743, -0.975098992, -0.202656907), float3(-0.827434354, -0.54229955, 0.145820358), float3(-0.348579773, -0.41580227, 0.84000036), float3(-0.247177893, -0.730481996, -0.636631087), float3(-0.370015494, 0.857794815, 0.356758445),
+    float3(0.591339490, -0.54831196, -0.591330359), float3(0.120487351, -0.762647237, -0.635493500), float3(0.61695926, 0.0307964792, 0.786392295), float3(0.125815683, -0.664082988, -0.736996741), float3(-0.647756512, -0.174014725, -0.741707742), float3(0.621788931, -0.780443044, -0.0654765507), float3(0.658994342, -0.609698770, 0.440447347), float3(-0.268983750, -0.673240316, -0.688763542),
+    float3(-0.384977510, 0.567654263, 0.727709387), float3(0.575444440, 0.811047115, -0.105196350), float3(0.914159368, 0.383294781, 0.13190056), float3(-0.10792531, 0.924549396, 0.365459352), float3(0.37797708, 0.304314878, 0.874371645), float3(-0.214288521, -0.825928623, 0.521461732), float3(0.580254447, 0.414809859, -0.700883411), float3(-0.198266088, 0.856716126, -0.476159675),
+    float3(-0.0338155370, 0.377318078, -0.925466140), float3(-0.686792284, -0.665659782, 0.291913364), float3(0.773174260, -0.287579354, -0.565243025), float3(-0.0965594192, 0.919370836, -0.381357500), float3(0.271570245, -0.957790954, -0.0942660558), float3(0.245101570, -0.691799856, -0.679218800), float3(0.97770078, -0.175385537, 0.115503654), float3(-0.522473993, 0.852160681, 0.0290361594),
+    float3(-0.773488059, -0.526129234, 0.353417953), float3(-0.713449244, -0.26954724, 0.646787801), float3(0.164403727, 0.510584620, -0.843963719), float3(0.649463578, 0.0558561129, 0.758338416), float3(-0.471197088, 0.501728050, -0.725425576), float3(-0.633576430, -0.238168627, -0.736109102), float3(-0.902153309, -0.27094780, -0.335718176), float3(-0.379371103, 0.87225811, 0.308615202),
+    float3(-0.685559896, -0.325014330, 0.651439416), float3(0.290094221, -0.779905774, -0.554610066), float3(-0.209831933, 0.8503707, 0.482535160), float3(-0.459260375, 0.659850433, -0.594707753), float3(0.871594548, 0.0961636540, -0.480703124), float3(-0.677666631, 0.711850487, -0.184490701), float3(0.704437763, 0.31242759, 0.63730403), float3(-0.705231888, -0.240109329, -0.667079825),
+    float3(0.08192100, -0.720733613, -0.688354564), float3(-0.699368090, -0.587576322, -0.406986903), float3(-0.128145448, 0.641989588, 0.755928642), float3(-0.633738823, -0.678547150, -0.371414684), float3(0.556505190, -0.216888757, -0.802035685), float3(-0.579155448, 0.724437201, -0.373857871), float3(0.117577907, -0.709645107, 0.694679247), float3(-0.613461960, 0.132363107, 0.778552779),
+    float3(0.698463530, -0.0298051623, -0.71502471), float3(0.831808296, -0.393017195, 0.391959745), float3(0.146957642, 0.0554165171, -0.987589216), float3(0.70886857, -0.269050386, 0.652010147), float3(0.272605318, 0.6736976, -0.6868899), float3(-0.659129537, 0.303545859, -0.688046629), float3(0.481513137, -0.752827007, 0.448772320), float3(0.943000946, 0.167564741, -0.287526125),
+    float3(0.43480295, 0.769530452, -0.467727775), float3(0.393199618, 0.59447362, 0.701423672), float3(0.725433665, -0.60392565, 0.330181467), float3(0.759023522, -0.650608323, 0.0243331320), float3(-0.855276859, -0.343004273, 0.388393566), float3(-0.613974683, 0.698172524, 0.368225764), float3(-0.746590548, -0.575200950, 0.334284937), float3(0.573006567, 0.81055553, -0.121091679),
+    float3(-0.922587736, -0.347521101, -0.16751403), float3(-0.710581678, -0.471969202, -0.521841689), float3(-0.0856460971, 0.358300138, 0.92966970), float3(-0.827969760, -0.204315712, 0.522227120), float3(0.42794402, 0.27816599, 0.859934644), float3(0.539907967, -0.785712065, -0.301920416), float3(0.567840425, -0.549541397, -0.612830730), float3(-0.989607104, 0.136563910, -0.0450341842),
+    float3(-0.615434263, -0.644087559, 0.454303733), float3(0.107420436, -0.794634069, 0.597509452), float3(-0.359544996, -0.888552994, 0.2849578), float3(-0.218040529, 0.152988896, 0.963873811), float3(-0.727743231, -0.616405050, -0.300723464), float3(0.724972911, -0.0066971948, 0.688744818), float3(-0.555365945, -0.533658625, 0.637790826), float3(0.513755801, 0.797620819, -0.316000007),
+    float3(-0.379402484, 0.924560856, -0.0352275149), float3(0.822924865, 0.274536593, -0.497417655), float3(-0.540411439, 0.609114144, 0.580461398), float3(0.803658190, -0.270302946, 0.530160193), float3(0.604431887, 0.683296839, 0.409594338), float3(0.0638998881, 0.965820860, -0.251210807), float3(0.108711328, 0.740247117, -0.663487793), float3(-0.71342771, -0.692678401, 0.105912847),
+    float3(0.645889781, -0.572454851, -0.505095865), float3(-0.655393141, 0.738147162, 0.15999561), float3(0.391096132, 0.918887137, -0.0518675599), float3(-0.487902247, -0.590437690, 0.642911137), float3(0.601479009, 0.770744136, -0.210182009), float3(-0.567717304, 0.751136099, 0.336885176), float3(0.785857350, 0.22667466, 0.575366683), float3(-0.452034554, -0.60422268, -0.656185726),
+    float3(0.00227211634, 0.413284405, -0.910599164), float3(-0.581575141, -0.516292598, 0.628659133), float3(-0.0370370478, 0.827378575, 0.560422117), float3(-0.511969250, 0.795354342, -0.324498005), float3(-0.268241736, -0.957229024, -0.108438761), float3(-0.232248273, -0.967913110, -0.0959424332), float3(0.355432890, -0.888150554, 0.291300622), float3(0.734652051, -0.437137316, 0.518842297),
+    float3(0.998512011, 0.0465901116, -0.0283394457), float3(-0.372768749, -0.908248136, 0.190075728), float3(0.9173737, -0.348364210, 0.192529848), float3(0.271491107, 0.414752973, -0.868488658), float3(0.513176348, -0.711633416, 0.479820712), float3(-0.873735360, 0.1888699, -0.448235064), float3(0.846004382, -0.372521791, 0.381449997), float3(0.897872745, -0.178020914, -0.402657530),
+    float3(0.217806564, -0.969832284, -0.109478953), float3(-0.151803130, -0.778891813, -0.608509123), float3(-0.260038487, -0.475539807, -0.840381982), float3(0.57231350, -0.747434093, -0.337341850), float3(-0.717414100, 0.169901718, -0.675611141), float3(-0.68418078, 0.0214570759, -0.728996741), float3(-0.200744790, 0.0655560578, -0.977447662), float3(-0.114880369, -0.804488731, 0.582752418),
+    float3(-0.787034963, 0.0344748923, 0.615944354), float3(-0.201559642, 0.685987228, 0.699138922), float3(-0.0858108251, -0.1092083, -0.990308051), float3(0.553269339, 0.732525040, -0.39661077), float3(-0.184248933, -0.977737505, -0.100407674), float3(0.077547378, -0.911150585, 0.404711025), float3(0.139983840, 0.760163121, -0.634473445), float3(0.448441936, -0.84528924, 0.290492542),
+    };
+
+
+static float InterpHermiteFunc(float t) { return t*t*(3 - 2 * t); }
+static float InterpQuinticFunc(float t) { return t*t*t*(t*(t * 6 - 15) + 10); }
+
+static float CubicLerp(float a, float b, float c, float d, float t)
+{
+	float p = (d - c) - (a - b);
+	return t * t * t * p + t * t * ((a - b) - p) + t * (c - a) + b;
+}
+
+float ValCoord2D(int seed, int x, int y)
+{
+    int n = seed;
+    n ^= X_PRIME * x;
+    n ^= Y_PRIME * y;
+
+    return (n * n * n * 60493) / float(2147483648.0);
+}
+
+float ValCoord3D(int seed, int x, int y, int z)
+{
+	int n = seed;
+	n ^= X_PRIME * x;
+	n ^= Y_PRIME * y;
+	n ^= Z_PRIME * z;
+
+	return (n * n * n * 60493) / float(2147483648.0);
+}
+
+
+float ValCoord4D(int seed, int x, int y, int z, int w)
+{
+    int n = seed;
+    n ^= X_PRIME * x;
+    n ^= Y_PRIME * y;
+    n ^= Z_PRIME * z;
+    n ^= W_PRIME * w;
+
+    return (n * n * n * 60493) / float(2147483648.0);
+}
+
+float GradCoord3D(int x, int y, int z, float xd, float yd, float zd) 
+{
+
+	int hash = m_seed;
+    hash ^= X_PRIME * x;
+    hash ^= Y_PRIME * y;
+    hash ^= Z_PRIME * z;
+
+    hash = hash * hash * hash * 60493;
+    hash = (hash >> 13) ^ hash;
+
+    float3 g = GRAD_3D[hash & 15];
+
+    return xd * g.x + yd * g.y + zd * g.z;
+}
+
+int Hash3D(int seed, int x, int y, int z)
+{
+    int hash = seed;
+    hash ^= X_PRIME * x;
+    hash ^= Y_PRIME * y;
+    hash ^= Z_PRIME * z;
+
+    hash = hash * hash * hash * 60493;
+    hash = (hash >> 13) ^ hash;
+
+    return hash;
+}
+
+float GetWhiteNoise(float x, float y, float z, float w)
+{
+    int xi = asint(x);
+    int yi = asint(y);
+    int zi = asint(z);
+    int wi = asint(w);
+
+    return ValCoord4D(m_seed, xi, yi, zi, wi);
+}
+float GetWhiteNoise(float x, float y, float z)
+{
+    int xi = asint(x);
+    int yi = asint(y);
+    int zi = asint(z);
+
+    return ValCoord3D(m_seed, xi, yi, zi);
+}
+
+float GetWhiteNoise(float x, float y)
+{
+    int xi = asint(x);
+    int yi = asint(y);
+
+    return ValCoord2D(m_seed, xi, yi);
+}
+float GetWhiteNoiseInt(int x, int y, int z, int w) 
+{
+	return ValCoord4D(m_seed, x, y, z, w);
+}
+
+float GetWhiteNoiseInt(int x, int y, int z) 
+{
+	return ValCoord3D(m_seed, x, y, z);
+}
+
+float GetWhiteNoiseInt(int x, int y) 
+{
+	return ValCoord2D(m_seed, x, y);
+}
+
+//Value
+float SingleValue(float x, float y, float z)
+{
+	
+	int x0 = floor(x);
+	int y0 = floor(y);
+	int z0 = floor(z);
+	int x1 = x0 + 1;
+	int y1 = y0 + 1;
+	int z1 = z0 + 1;
+
+	float xs = 0, ys = 0, zs = 0;
+	switch (m_interp)
+	{
+	case 0:
+		xs = x - (float)x0;
+		ys = y - (float)y0;
+		zs = z - (float)z0;
+		break;
+	case 1:
+		xs = InterpHermiteFunc(x - (float)x0);
+		ys = InterpHermiteFunc(y - (float)y0);
+		zs = InterpHermiteFunc(z - (float)z0);
+		break;
+	case 2:
+		xs = InterpQuinticFunc(x - (float)x0);
+		ys = InterpQuinticFunc(y - (float)y0);
+		zs = InterpQuinticFunc(z - (float)z0);
+		break;
+	}
+	//return xs + ys + zs;
+	float xf00 = lerp(ValCoord3D(m_seed, x0, y0, z0), ValCoord3D(m_seed, x1, y0, z0), xs);
+	float xf10 = lerp(ValCoord3D(m_seed, x0, y1, z0), ValCoord3D(m_seed, x1, y1, z0), xs);
+	float xf01 = lerp(ValCoord3D(m_seed, x0, y0, z1), ValCoord3D(m_seed, x1, y0, z1), xs);
+	float xf11 = lerp(ValCoord3D(m_seed, x0, y1, z1), ValCoord3D(m_seed, x1, y1, z1), xs);
+
+	float yf0 = lerp(xf00, xf10, ys);
+	float yf1 = lerp(xf01, xf11, ys);
+
+	return lerp(yf0, yf1, zs);
+}
+
+
+float SingleValueFractalFBM(float x, float y, float z)
+{
+	
+	float sum = SingleValue(x, y, z);
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += SingleValue(x, y, z) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleValueFractalBillow(float x, float y, float z)
+{
+	
+	float sum = abs(SingleValue(x, y, z)) * 2 - 1;
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += (abs(SingleValue(x, y, z)) * 2 - 1) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleValueFractalRigidMulti(float x, float y, float z)
+{
+
+	float sum = 1 - abs(SingleValue(x, y, z));
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum -= (1 - abs(SingleValue(x, y, z))) * amp;
+	}
+
+	return sum;
+}
+
+float GetValueFractal(float x, float y, float z)
+{
+	x *= m_frequency;
+	y *= m_frequency;
+	z *= m_frequency;
+
+	switch (m_fractalType)
+	{
+	case 0:
+		return SingleValueFractalFBM(x, y, z);
+	case 1:
+		return SingleValueFractalBillow(x, y, z);
+	case 2:
+		return SingleValueFractalRigidMulti(x, y, z);
+	default:
+		return 0;
+	}
+}
+
+float GetValue(float x, float y, float z)
+{
+	return SingleValue(x * m_frequency, y * m_frequency, z * m_frequency);
+}
+
+//Perlin
+float SinglePerlin(float x, float y, float z)
+{
+	int x0 = floor(x);
+	int y0 = floor(y);
+	int z0 = floor(z);
+	int x1 = x0 + 1;
+	int y1 = y0 + 1;
+	int z1 = z0 + 1;
+
+	float xs = 0, ys = 0, zs = 0;
+	switch (m_interp)
+	{
+	case 0:
+		xs = x - (float)x0;
+		ys = y - (float)y0;
+		zs = z - (float)z0;
+		break;
+	case 1:
+		xs = InterpHermiteFunc(x - (float)x0);
+		ys = InterpHermiteFunc(y - (float)y0);
+		zs = InterpHermiteFunc(z - (float)z0);
+		break;
+	case 2:
+		xs = InterpQuinticFunc(x - (float)x0);
+		ys = InterpQuinticFunc(y - (float)y0);
+		zs = InterpQuinticFunc(z - (float)z0);
+		break;
+	}
+
+	float xd0 = x - (float)x0;
+	float yd0 = y - (float)y0;
+	float zd0 = z - (float)z0;
+	float xd1 = xd0 - 1;
+	float yd1 = yd0 - 1;
+	float zd1 = zd0 - 1;
+
+	
+	float xf00 = lerp(GradCoord3D( x0, y0, z0, xd0, yd0, zd0), GradCoord3D( x1, y0, z0, xd1, yd0, zd0), xs);
+	float xf10 = lerp(GradCoord3D( x0, y1, z0, xd0, yd1, zd0), GradCoord3D( x1, y1, z0, xd1, yd1, zd0), xs);
+	float xf01 = lerp(GradCoord3D( x0, y0, z1, xd0, yd0, zd1), GradCoord3D( x1, y0, z1, xd1, yd0, zd1), xs);
+	float xf11 = lerp(GradCoord3D( x0, y1, z1, xd0, yd1, zd1), GradCoord3D( x1, y1, z1, xd1, yd1, zd1), xs);
+	
+	float yf0 = lerp(xf00, xf10, ys);
+	float yf1 = lerp(xf01, xf11, ys);
+
+	return lerp(yf0, yf1, zs);
+}
+
+float SinglePerlinFractalFBM(float x, float y, float z)
+{
+	float sum = SinglePerlin(x, y, z);
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += SinglePerlin(x, y, z) * amp;
+		
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SinglePerlinFractalBillow(float x, float y, float z)
+{
+	float sum = abs(SinglePerlin(x, y, z)) * 2 - 1;
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += (abs(SinglePerlin(x, y, z)) * 2 - 1) * amp;
+		
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SinglePerlinFractalRigidMulti(float x, float y, float z)
+{
+	float sum = 1 - abs(SinglePerlin(x, y, z));
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum -= (1 - abs(SinglePerlin(x, y, z))) * amp;
+		
+	}
+
+	return sum;
+}
+
+float GetPerlinFractal(float x, float y, float z)
+{
+	x *= m_frequency;
+	y *= m_frequency;
+	z *= m_frequency;
+
+	switch (m_fractalType)
+	{
+	case 0:
+		return SinglePerlinFractalFBM(x, y, z);
+	case 1:
+		return SinglePerlinFractalBillow(x, y, z);
+	case 2:
+		return SinglePerlinFractalRigidMulti(x, y, z);
+	default:
+		return 0;
+	}
+}
+
+float GetPerlin(float x, float y, float z)
+{
+	return SinglePerlin(x * m_frequency, y * m_frequency, z * m_frequency);
+}
+
+//Simplex
+
+static float F3 = 1 / float(3);
+static float G3 = 1 / float(6);
+
+float SingleSimplex(float x, float y, float z)
+{
+	float t = (x + y + z) * F3;
+	int i = floor(x + t);
+	int j = floor(y + t);
+	int k = floor(z + t);
+
+	t = (i + j + k) * G3;
+	float X0 = i - t;
+	float Y0 = j - t;
+	float Z0 = k - t;
+
+	float x0 = x - X0;
+	float y0 = y - Y0;
+	float z0 = z - Z0;
+
+	int i1, j1, k1;
+	int i2, j2, k2;
+
+	if (x0 >= y0)
+	{
+		if (y0 >= z0)
+		{
+			i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0;
+		}
+		else if (x0 >= z0)
+		{
+			i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1;
+		}
+		else // x0 < z0
+		{
+			i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1;
+		}
+	}
+	else // x0 < y0
+	{
+		if (y0 < z0)
+		{
+			i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1;
+		}
+		else if (x0 < z0)
+		{
+			i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1;
+		}
+		else // x0 >= z0
+		{
+			i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0;
+		}
+	}
+
+	float x1 = x0 - i1 + G3;
+	float y1 = y0 - j1 + G3;
+	float z1 = z0 - k1 + G3;
+	float x2 = x0 - i2 + 2*G3;
+	float y2 = y0 - j2 + 2*G3;
+	float z2 = z0 - k2 + 2*G3;
+	float x3 = x0 - 1 + 3*G3;
+	float y3 = y0 - 1 + 3*G3;
+	float z3 = z0 - 1 + 3*G3;
+
+	float n0, n1, n2, n3;
+
+	t = float(0.6) - x0*x0 - y0*y0 - z0*z0;
+	if (t < 0) n0 = 0;
+	else
+	{
+		t *= t;
+		n0 = t*t*GradCoord3D( i, j, k, x0, y0, z0);
+	}
+
+	t = float(0.6) - x1*x1 - y1*y1 - z1*z1;
+	if (t < 0) n1 = 0;
+	else
+	{
+		t *= t;
+		n1 = t*t*GradCoord3D( i + i1, j + j1, k + k1, x1, y1, z1);
+	}
+
+	t = float(0.6) - x2*x2 - y2*y2 - z2*z2;
+	if (t < 0) n2 = 0;
+	else
+	{
+		t *= t;
+		n2 = t*t*GradCoord3D( i + i2, j + j2, k + k2, x2, y2, z2);
+	}
+
+	t = float(0.6) - x3*x3 - y3*y3 - z3*z3;
+	if (t < 0) n3 = 0;
+	else
+	{
+		t *= t;
+		n3 = t*t*GradCoord3D( i + 1, j + 1, k + 1, x3, y3, z3);
+	}
+
+	return 32 * (n0 + n1 + n2 + n3);
+}
+
+float SingleSimplexFractalFBM(float x, float y, float z)
+{
+	float sum = SingleSimplex(x, y, z);
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += SingleSimplex(x, y, z) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleSimplexFractalBillow(float x, float y, float z)
+{
+	float sum = abs(SingleSimplex(x, y, z)) * 2 - 1;
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += (abs(SingleSimplex(x, y, z)) * 2 - 1) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleSimplexFractalRigidMulti(float x, float y, float z)
+{
+	float sum = 1 - abs(SingleSimplex(x, y, z));
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum -= (1 - abs(SingleSimplex(x, y, z))) * amp;
+	}
+
+	return sum;
+}
+
+float GetSimplexFractal(float x, float y, float z)
+{
+	x *= m_frequency;
+	y *= m_frequency;
+	z *= m_frequency;
+
+	switch (m_fractalType)
+	{
+	case 0:
+		return SingleSimplexFractalFBM(x, y, z);
+	case 1:
+		return SingleSimplexFractalBillow(x, y, z);
+	case 2:
+		return SingleSimplexFractalRigidMulti(x, y, z);
+	default:
+		return 0;
+	}
+}
+
+float GetSimplex(float x, float y, float z)
+{
+	return SingleSimplex(x * m_frequency, y * m_frequency, z * m_frequency);
+}
+
+//Cubic
+static const float CUBIC_3D_BOUNDING = 1 / (float(1.5) * float(1.5) * float(1.5));
+
+float SingleCubic(float x, float y, float z)
+{
+	int x1 = floor(x);
+	int y1 = floor(y);
+	int z1 = floor(z);
+
+	int x0 = x1 - 1;
+	int y0 = y1 - 1;
+	int z0 = z1 - 1;
+	int x2 = x1 + 1;
+	int y2 = y1 + 1;
+	int z2 = z1 + 1;
+	int x3 = x1 + 2;
+	int y3 = y1 + 2;
+	int z3 = z1 + 2;
+
+	float xs = x - (float)x1;
+	float ys = y - (float)y1;
+	float zs = z - (float)z1;
+
+	return CubicLerp(
+		CubicLerp(
+		CubicLerp(ValCoord3D(m_seed, x0, y0, z0), ValCoord3D(m_seed, x1, y0, z0), ValCoord3D(m_seed, x2, y0, z0), ValCoord3D(m_seed, x3, y0, z0), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y1, z0), ValCoord3D(m_seed, x1, y1, z0), ValCoord3D(m_seed, x2, y1, z0), ValCoord3D(m_seed, x3, y1, z0), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y2, z0), ValCoord3D(m_seed, x1, y2, z0), ValCoord3D(m_seed, x2, y2, z0), ValCoord3D(m_seed, x3, y2, z0), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y3, z0), ValCoord3D(m_seed, x1, y3, z0), ValCoord3D(m_seed, x2, y3, z0), ValCoord3D(m_seed, x3, y3, z0), xs),
+		ys),
+		CubicLerp(
+		CubicLerp(ValCoord3D(m_seed, x0, y0, z1), ValCoord3D(m_seed, x1, y0, z1), ValCoord3D(m_seed, x2, y0, z1), ValCoord3D(m_seed, x3, y0, z1), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y1, z1), ValCoord3D(m_seed, x1, y1, z1), ValCoord3D(m_seed, x2, y1, z1), ValCoord3D(m_seed, x3, y1, z1), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y2, z1), ValCoord3D(m_seed, x1, y2, z1), ValCoord3D(m_seed, x2, y2, z1), ValCoord3D(m_seed, x3, y2, z1), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y3, z1), ValCoord3D(m_seed, x1, y3, z1), ValCoord3D(m_seed, x2, y3, z1), ValCoord3D(m_seed, x3, y3, z1), xs),
+		ys),
+		CubicLerp(
+		CubicLerp(ValCoord3D(m_seed, x0, y0, z2), ValCoord3D(m_seed, x1, y0, z2), ValCoord3D(m_seed, x2, y0, z2), ValCoord3D(m_seed, x3, y0, z2), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y1, z2), ValCoord3D(m_seed, x1, y1, z2), ValCoord3D(m_seed, x2, y1, z2), ValCoord3D(m_seed, x3, y1, z2), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y2, z2), ValCoord3D(m_seed, x1, y2, z2), ValCoord3D(m_seed, x2, y2, z2), ValCoord3D(m_seed, x3, y2, z2), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y3, z2), ValCoord3D(m_seed, x1, y3, z2), ValCoord3D(m_seed, x2, y3, z2), ValCoord3D(m_seed, x3, y3, z2), xs),
+		ys),
+		CubicLerp(
+		CubicLerp(ValCoord3D(m_seed, x0, y0, z3), ValCoord3D(m_seed, x1, y0, z3), ValCoord3D(m_seed, x2, y0, z3), ValCoord3D(m_seed, x3, y0, z3), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y1, z3), ValCoord3D(m_seed, x1, y1, z3), ValCoord3D(m_seed, x2, y1, z3), ValCoord3D(m_seed, x3, y1, z3), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y2, z3), ValCoord3D(m_seed, x1, y2, z3), ValCoord3D(m_seed, x2, y2, z3), ValCoord3D(m_seed, x3, y2, z3), xs),
+		CubicLerp(ValCoord3D(m_seed, x0, y3, z3), ValCoord3D(m_seed, x1, y3, z3), ValCoord3D(m_seed, x2, y3, z3), ValCoord3D(m_seed, x3, y3, z3), xs),
+		ys),
+		zs) * CUBIC_3D_BOUNDING;
+}
+
+float SingleCubicFractalFBM(float x, float y, float z)
+{
+	float sum = SingleCubic(x, y, z);
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += SingleCubic(x, y, z) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleCubicFractalBillow(float x, float y, float z)
+{
+	float sum = abs(SingleCubic(x, y, z)) * 2 - 1;
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum += (abs(SingleCubic(x, y, z)) * 2 - 1) * amp;
+	}
+
+	return sum * m_fractalBounding;
+}
+
+float SingleCubicFractalRigidMulti(float x, float y, float z)
+{
+	float sum = 1 - abs(SingleCubic(x, y, z));
+	float amp = 1;
+	int i = 0;
+
+	while (++i < m_octaves)
+	{
+		m_seed++;
+		x *= m_lacunarity;
+		y *= m_lacunarity;
+		z *= m_lacunarity;
+
+		amp *= m_gain;
+		sum -= (1 - abs(SingleCubic(x, y, z))) * amp;
+	}
+
+	return sum;
+}
+
+float GetCubicFractal(float x, float y, float z)
+{
+	x *= m_frequency;
+	y *= m_frequency;
+	z *= m_frequency;
+
+	switch (m_fractalType)
+	{
+	case 0:
+		return SingleCubicFractalFBM(x, y, z);
+	case 1:	 
+		return SingleCubicFractalBillow(x, y, z);
+	case 2: 
+		return SingleCubicFractalRigidMulti(x, y, z);
+	default:
+		return 0;
+	}
+}
+
+float GetCubic(float x, float y, float z)
+{
+	return SingleCubic(x * m_frequency, y * m_frequency, z * m_frequency);
+}
+
+//Cellular
+
+float SingleCellular(float x, float y, float z)
+{
+	int xr = round(x);
+	int yr = round(y);
+	int zr = round(z);
+
+	float distance = 999999;
+	int xc, yc, zc;
+
+	switch (m_cellularDistanceFunction)
+	{
+	case 0:
+		for (int xi = xr - 1; xi <= xr + 1; xi++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi, yi, zi) & 255];
+
+                    float vecX = xi - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = vecX * vecX + vecY * vecY + vecZ * vecZ;
+
+					if (newDistance < distance)
+					{
+						distance = newDistance;
+						xc = xi;
+						yc = yi;
+						zc = zi;
+					}
+				}
+			}
+		}
+		break;
+	case 1:
+		for (int xi1 = xr - 1; xi1 <= xr + 1; xi1++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi1, yi, zi) & 255];
+
+                    float vecX = xi1 - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = abs(vecX) + abs(vecY) + abs(vecZ);
+
+					if (newDistance < distance)
+					{
+						distance = newDistance;
+						xc = xi1;
+						yc = yi;
+						zc = zi;
+					}
+				}
+			}
+		}
+		break;
+	case 2:
+		for (int xi2 = xr - 1; xi2 <= xr + 1; xi2++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi2, yi, zi) & 255];
+
+                    float vecX = xi2 - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = (abs(vecX) + abs(vecY) + abs(vecZ)) + (vecX * vecX + vecY * vecY + vecZ * vecZ);
+
+					if (newDistance < distance)
+					{
+						distance = newDistance;
+						xc = xi2;
+						yc = yi;
+						zc = zi;
+					}
+				}
+			}
+		}
+		break;
+	default:
+		break;
+	}
+
+	uint lutPos;
+	switch (m_cellularReturnType)
+	{
+	case 0:
+		return ValCoord3D(m_seed, xc, yc, zc);
+
+
+
+	case 2:
+		return distance;
+	default:
+		return 0;
+	}
+}
+
+float SingleCellular2Edge(float x, float y, float z)
+{
+	int xr = round(x);
+	int yr = round(y);
+	int zr = round(z);
+
+	float distance[FN_CELLULAR_INDEX_MAX+1] = { 999999,999999,999999,999999 };
+
+	switch (m_cellularDistanceFunction)
+	{
+	case 0:
+		for (int xi3 = xr - 1; xi3 <= xr + 1; xi3++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi3, yi, zi) & 255];
+
+                    float vecX = xi3 - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = vecX * vecX + vecY * vecY + vecZ * vecZ;
+
+					for (int i = m_cellularDistanceIndex1; i > 0; i--)
+						distance[i] = max(min(distance[i], newDistance), distance[i - 1]);
+					distance[0] = min(distance[0], newDistance); 
+				}
+			}
+		}
+		break;
+	case 1:
+		for (int xi4 = xr - 1; xi4 <= xr + 1; xi4++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi4, yi, zi) & 255];
+
+                    float vecX = xi4 - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = abs(vecX) + abs(vecY) + abs(vecZ);
+
+					for (int i = m_cellularDistanceIndex1; i > 0; i--)
+						distance[i] = max(min(distance[i], newDistance), distance[i - 1]);
+					distance[0] = min(distance[0], newDistance);
+				}
+			}
+		}
+		break;
+	case 2:
+		for (int xi5 = xr - 1; xi5 <= xr + 1; xi5++)
+		{
+			for (int yi = yr - 1; yi <= yr + 1; yi++)
+			{
+				for (int zi = zr - 1; zi <= zr + 1; zi++)
+				{
+					float3 vec = CELL_3D[Hash3D(m_seed, xi5, yi, zi) & 255];
+
+                    float vecX = xi5 - x + vec.x * m_cellularJitter;
+                    float vecY = yi - y + vec.y * m_cellularJitter;
+                    float vecZ = zi - z + vec.z * m_cellularJitter;
+
+					float newDistance = (abs(vecX) + abs(vecY) + abs(vecZ)) + (vecX * vecX + vecY * vecY + vecZ * vecZ);
+
+					for (int i = m_cellularDistanceIndex1; i > 0; i--)
+						distance[i] = max(min(distance[i], newDistance), distance[i - 1]);
+					distance[0] = min(distance[0], newDistance);
+				}
+			}
+		}
+		break;
+	default:
+		break;
+	}
+
+	switch (m_cellularReturnType)
+	{
+	case 0:
+		return distance[m_cellularDistanceIndex1];
+	case 1:
+		return distance[m_cellularDistanceIndex1] + distance[m_cellularDistanceIndex0];
+	case 2:
+		return distance[m_cellularDistanceIndex1] - distance[m_cellularDistanceIndex0];
+	case 3:
+		return distance[m_cellularDistanceIndex1] * distance[m_cellularDistanceIndex0];
+	case 4:
+		return distance[m_cellularDistanceIndex0] / distance[m_cellularDistanceIndex1];
+	default:
+		return 0;
+	}
+}
+
+float GetCellular(float x, float y, float z)
+{
+	x *= m_frequency;
+	y *= m_frequency;
+	z *= m_frequency;
+
+	switch (m_cellularReturnType)
+	{
+	case 0:
+	case 1:
+	case 2:
+		return SingleCellular(x, y, z);
+	default:
+		return SingleCellular2Edge(x, y, z);
+	}
+}
+
