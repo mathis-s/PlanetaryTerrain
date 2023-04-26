@@ -36,7 +36,7 @@ namespace PlanetaryTerrain
         {
             MeshData md = new MeshData(planet.quadArrays.GetExtendedPlane(), planet.quadSize * planet.quadSize);
 
-            method = MeshGeneration.GenerateMesh;
+            method = MeshGeneration.GenerateMeshD;
             cookie = method.BeginInvoke(quad, md, null, null);
 
             isRunning = true;

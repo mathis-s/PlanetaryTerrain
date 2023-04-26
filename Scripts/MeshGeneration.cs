@@ -143,6 +143,104 @@ namespace PlanetaryTerrain
             return md;
         }
 
+        /// <summary>
+        /// Creates a MeshData that is later applied to this Quad's mesh.
+        /// </summary>
+        internal static MeshData GenerateMeshD(Quad quad, MeshData md)
+        {
+
+            Planet planet = quad.planet;
+            int sideLength = planet.quadSize;
+            int sideLength_1 = sideLength - 1;
+            int numVertices = sideLength * sideLength;
+
+            Vector3[] finalVerts = new Vector3[numVertices];
+            float height = 0f;
+            float[] texture;
+            Vector3 down = Vector3.zero;
+            Vector3d meshOffset = Vector3d.zero;
+
+            float averageHeight = 0f;
+            float[] heights = null;
+
+            if (planet.calculateMsds)
+                heights = new float[numVertices];
+
+            double offsetX = 0, offsetY = 0;
+            int levelConstant = 0;
+
+            CalculateUVConstants(quad, ref levelConstant, ref offsetX, ref offsetY);
+
+            md.uv = new Vector2[numVertices];
+
+            for (int i = 0; i < numVertices; i++)
+            {
+                Vector3d normalized;
+                Vector3d vert = GetPositionD(quad, new Vector3d(md.vertices[i]), out height, out normalized, out md.uv[i], i);
+
+                if (planet.calculateMsds)
+                {
+                    averageHeight += height;
+                    heights[i] = height;
+                }
+
+                if (i == 0)
+                {
+                    // Use zeroth vertex rounded to float and converted back to int as meshOffset
+                    quad.meshOffset = (Vector3)vert;
+                    meshOffset = new Vector3d(quad.meshOffset);
+                    down = (Vector3)(Vector3d.zero - meshOffset).normalized;
+                }
+                // After this subtraction the magnitude is a lot smaller,
+                // we can cast to float now.
+                vert -= meshOffset;
+
+                finalVerts[i] = (Vector3)vert;
+                md.vertices[i] = (Vector3)vert;
+
+                // Non-Legacy UV calculations
+                if (!planet.usingLegacyUVType)
+                    if (planet.uvType == UVType.Cube)
+                        CalculateUVCube(quad, ref md.uv[i], i, sideLength, sideLength_1, planet.uvScale, levelConstant, offsetX, offsetY);
+                    else
+                        CalculateUVQuad(quad, ref md.uv[i], i, sideLength, sideLength_1, levelConstant);
+
+                texture = planet.textureProvider.EvaluateTexture(height, (Vector3)normalized);
+
+                md.colors[i] = new Color(texture[0], texture[1], texture[2], texture[3]); //Using color and uv4 channels to encode biome/texture data
+                md.uv2[i] = new Vector2(texture[4], texture[5]);
+
+                for (int j = 0; j < texture.Length; j++)
+                {
+                    if (texture[j] > 0.5f) quad.biome = (Biome)(((int)quad.biome) | (1 << j));
+                }
+            }
+
+            //Calculating position of edge vertices. They are only used for normal generation and discarded afterwards, so we can leave out everything (UV, Texture, ...) except for the actual position calculation.
+            for (int i = numVertices; i < md.vertices.Length; i++)
+            {
+                md.vertices[i] = (Vector3)(GetPositionD(quad, new Vector3d(md.vertices[i])) - meshOffset);
+            }
+
+
+            CalculateNormals(ref md.normals, ref md.vertices, planet.quadArrays.trisExtendedPlane, numVertices);
+            md.vertices = finalVerts; //Discarding edge vertices
+
+            SlopeTexture(planet, ref md, numVertices, down);
+
+            if (planet.calculateMsds)
+            {
+                averageHeight /= numVertices;
+
+                for (int i = 0; i < numVertices; i++)
+                {
+                    float deviation = (averageHeight - heights[i]);
+                    quad.msd += deviation * deviation;
+                }
+            }
+            return md;
+        }
+
         internal static MeshData GenerateMeshGPU(Quad quad, MeshData md)
         {
             Planet planet = quad.planet;
@@ -323,6 +421,54 @@ namespace PlanetaryTerrain
             return vertex;
         }
 
+        /// <summary>
+        /// Position on unit cube to position on planet
+        /// </summary>
+        private static Vector3d GetPositionD(Quad quad, Vector3d vertex, out float height, out Vector3d normalized, out Vector2 uv, int index)
+        {
+            Planet planet = quad.planet;
+
+            vertex = vertex * (double)quad.scale; //Scaling down to subdivision level
+            vertex = quad.rotationD * vertex; //Rotating so the vertices are on the unit cube. Planes that are fed into this function all face up.
+
+            if (planet.usingLegacyUVType)
+            {
+                if (planet.uvType == UVType.LegacyContinuous)
+                    vertex += new Vector3d(quad.trPosition); //Offsetting the plane. Now all vertices form a cube
+
+                switch (quad.plane)
+                {
+                    case QuadPlane.ZPlane:
+                        uv = new Vector2((float)vertex.x, (float)vertex.y);
+                        break;
+                    case QuadPlane.YPlane:
+                        uv = new Vector2((float)vertex.x, (float)vertex.z);
+                        break;
+                    case QuadPlane.XPlane:
+                        uv = new Vector2((float)vertex.z, (float)vertex.y);
+                        break;
+                    default:
+                        uv = Vector2.zero;
+                        break;
+                }
+                if (planet.uvType != UVType.LegacyContinuous)
+                    vertex += new Vector3d(quad.trPosition);
+            }
+            else
+            {
+                vertex += new Vector3d(quad.trPosition);
+                uv = Vector2.zero;
+            }
+
+            vertex.Normalize();//Normalizing the vertices. The cube now is a sphere.
+
+            normalized = vertex;
+            height = planet.heightProvider.HeightAtXYZ(((Vector3)vertex)); //Getting height at vertex position
+            vertex *= (double)planet.radius; //Scaling up the sphere
+            vertex *= ((double)planet.heightInv + (double)height) / (double)planet.heightInv; //Offsetting vertex from center based on height and inverse heightScale
+            return vertex;
+        }
+
 
         /// <summary>
         /// Position on unit cube to position on planet
@@ -337,6 +483,22 @@ namespace PlanetaryTerrain
             float height = planet.heightProvider.HeightAtXYZ(vertex);
             vertex *= planet.radius;
             vertex *= (planet.heightInv + height) / planet.heightInv;
+            return vertex;
+        }
+
+        /// <summary>
+        /// Position on unit cube to position on planet
+        /// </summary>
+        private static Vector3d GetPositionD(Quad quad, Vector3d vertex)
+        {
+            Planet planet = quad.planet;
+
+            vertex = vertex * (double)quad.scale;
+            vertex = quad.rotationD * vertex + new Vector3d(quad.trPosition);
+            vertex.Normalize();
+            float height = planet.heightProvider.HeightAtXYZ((Vector3)vertex);
+            vertex *= (double)planet.radius;
+            vertex *= ((double)planet.heightInv + (double)height) / (double)planet.heightInv;
             return vertex;
         }
 
@@ -420,9 +582,9 @@ namespace PlanetaryTerrain
 
             RotateUV(quad, ref x, ref y);
 
-            
-            uv.x = (float) x;
-            uv.y = (float) y;
+
+            uv.x = (float)x;
+            uv.y = (float)y;
         }
 
 
