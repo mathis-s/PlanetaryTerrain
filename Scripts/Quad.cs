@@ -54,7 +54,6 @@ namespace PlanetaryTerrain
         public Mesh mesh;
         public Vector3 trPosition;
         public Quaternion rotation;
-        public QuaternionD rotationD;
         public GameObject renderedQuad;
         public Vector3 meshOffset;
         public Coroutine coroutine;
@@ -438,8 +437,3 @@ namespace PlanetaryTerrain
         }
     }
 }
-
-
-
-
-

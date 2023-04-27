@@ -429,7 +429,7 @@ namespace PlanetaryTerrain
             Planet planet = quad.planet;
 
             vertex = vertex * (double)quad.scale; //Scaling down to subdivision level
-            vertex = quad.rotationD * vertex; //Rotating so the vertices are on the unit cube. Planes that are fed into this function all face up.
+            vertex = ((QuaternionD)quad.rotation) * vertex; //Rotating so the vertices are on the unit cube. Planes that are fed into this function all face up.
 
             if (planet.usingLegacyUVType)
             {
@@ -494,7 +494,7 @@ namespace PlanetaryTerrain
             Planet planet = quad.planet;
 
             vertex = vertex * (double)quad.scale;
-            vertex = quad.rotationD * vertex + new Vector3d(quad.trPosition);
+            vertex = ((QuaternionD)quad.rotation) * vertex + new Vector3d(quad.trPosition);
             vertex.Normalize();
             float height = planet.heightProvider.HeightAtXYZ((Vector3)vertex);
             vertex *= (double)planet.radius;
