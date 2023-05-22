@@ -5,6 +5,9 @@ Planetary Terrain is a Unity Asset for spherical terrain with dynamic quadtree-b
 The bulk of this code was written by me from 2017 to 2018, and sold on the Unity Asset Store until 2023. Because the asset is no longer maintained, I have decided to open source it.
 
 ## Images
+
+https://github.com/mathis-s/PlanetaryTerrain/assets/39701487/e2a95afd-ea25-4b73-bf97-a98551a2aa5c
+
 ![ddd644fc-8fd4-488f-a8c7-da0745b58a7c](https://user-images.githubusercontent.com/39701487/232324891-576c7231-0600-4d37-a71f-d121e93c603f.jpg)
 ![5d93c16f-0c4a-411a-8241-9b60e9d963e3](https://user-images.githubusercontent.com/39701487/232324896-7b7b3851-e182-4cd7-abb8-24f8f1e878d0.jpg)
 ![6421196b-0dad-49bc-93ff-8605af4948ee](https://user-images.githubusercontent.com/39701487/232324943-843fc60d-9ba7-4780-8a6b-a0befb809d27.jpg)
